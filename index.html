@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>План квартиры</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: sans-serif; }
+  #map { height: 100%; background: #f7f7f7; }
+  .room-label {
+    background: rgba(255,255,255,0.9);
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-weight: bold;
+    font-size: 13px;
+    color: #333;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const targetRoom = params.get('room');
+
+  const map = L.map('map', { crs: L.CRS.Simple, minZoom: -3, maxZoom: 10 });
+
+  fetch('output.geojson')
+    .then(r => r.json())
+    .then(data => {
+      let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+
+      L.geoJSON(data, {
+        style: f => {
+          const isTarget = targetRoom && f.properties.nfc_id === targetRoom;
+          const isDim    = targetRoom && !isTarget;
+          return {
+            color: isTarget ? '#e6550d' : '#2c7fb8',
+            weight: isTarget ? 4 : 2,
+            fillColor: isTarget ? '#fdae6b' : '#7fcdbb',
+            fillOpacity: isDim ? 0.15 : (isTarget ? 0.7 : 0.45)
+          };
+        },
+        coordsToLatLng: coords => L.latLng(coords[1], coords[0]),
+        onEachFeature: (feature, lyr) => {
+          const p = feature.properties;
+          lyr.bindPopup(`<b>${p.name}</b><br>ID: ${p.nfc_id}`);
+          if (targetRoom && p.nfc_id === targetRoom) lyr.openPopup();
+        }
+      }).addTo(map);
+
+      data.features.forEach(f => {
+        const g = f.geometry;
+        const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+        polys.forEach(poly => poly.forEach(ring => ring.forEach(([x,y]) => {
+          if (x<minX) minX=x; if (x>maxX) maxX=x;
+          if (y<minY) minY=y; if (y>maxY) maxY=y;
+        })));
+      });
+
+      map.fitBounds([[minY, minX], [maxY, maxX]], { padding: [30,30] });
+
+      data.features.forEach(f => {
+        const p = f.properties;
+        if (p.center_x == null) return;
+        const isTarget = targetRoom && p.nfc_id === targetRoom;
+        L.marker([p.center_y, p.center_x], {
+          icon: L.divIcon({
+            className: 'room-label',
+            html: isTarget ? '★ ' + p.name : p.name,
+            iconSize: [140, 22],
+            iconAnchor: [70, 11]
+          }),
+          interactive: false
+        }).addTo(map);
+      });
+    })
+    .catch(err => {
+      document.body.innerHTML =
+        '<pre style="padding:20px;color:red">Ошибка: ' + err + '</pre>';
+    });
+</script>
+</body>
+</html>
